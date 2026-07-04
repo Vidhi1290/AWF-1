@@ -4,3 +4,4 @@ node_modules/
 *.tmp
 .~lock.*
 scripts/node_modules/
+Screenshot*.png
