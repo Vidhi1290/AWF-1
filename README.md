@@ -304,26 +304,6 @@ seniority, 10 pts soft skills/domain), matching_skills, missing_skills,
 relevant_experience, potential_concerns, ai_summary, and
 hiring_recommendation.
 
----
-
-## 🧼 Data Validation Logic (Step 5)
-
-Implemented twice, intentionally kept identical:
-
-1. `scripts/validate.js` — standalone, unit-tested
-   (`node scripts/validate.test.js`, **25 passing assertions**) so the logic
-   can be verified outside of n8n.
-2. Inlined copies inside the "Parse & Validate Resume JSON" and "Parse &
-   Validate Match JSON" Code nodes (n8n Code nodes can't `require()` local
-   project files, so the same functions are pasted in directly).
-
-Covers: safe JSON extraction from LLM text (handles code fences, stray
-prose, trailing commas), flattening of accidental objects-in-arrays,
-case-insensitive list deduplication, email format validation, phone number
-normalization, and experience-value standardization.
-
----
-
 ## ✅ Bonus items implemented
 
 - **Duplicate candidate detection** — SHA-256 resume-hash lookup before
@@ -336,50 +316,5 @@ normalization, and experience-value standardization.
 - Deterministic, configurable shortlisting thresholds.
 - Unit tests for the validation layer.
 
-## 💡 Known limitations / assumptions / next steps
-
-- **ResumeAttachment**: the binary resume file is carried through the
-  pipeline and available to the "Create Candidate Record" node, but
-  attaching it correctly requires the NocoDB `ResumeAttachment` column to be
-  of type **Attachment** (not plain text) and the node's field mapping to be
-  switched to binary mode. If your NocoDB table was created via the CSV
-  import shortcut, that column will default to plain text — change its type
-  in the NocoDB UI first, then verify the attachment appears after a test
-  run.
-- The recruitment inbox is a Gmail account; Outlook wasn't used since
-  Google Calendar was chosen for scheduling (avoids a second OAuth app).
-- "Total Experience" is estimated by the LLM from job date ranges when not
-  explicitly stated, then rounded to 1 decimal place.
-- Interview slots are auto-proposed 2 days out at 10:00–10:30 AM in the
-  calendar's default timezone; a human recruiter is expected to reschedule
-  if that slot doesn't work — this assignment doesn't ask for
-  availability-checking logic.
-- One job description is active at a time (read from a single file path).
-  Multi-JD support (bonus) would mean keying the JD off the recipient email
-  alias or a subject-line tag — noted as a natural next step, not
-  implemented.
-- `llama3.2:3b` is the default model for speed; `gpt-oss:20b` is available
-  on the same machine and can be swapped in via `OLLAMA_MODEL` for higher
-  parsing accuracy at the cost of latency.
-- Semantic (embedding-based) resume-to-JD matching was not implemented; the
-  current approach is LLM-judgment-based scoring against a fixed rubric.
-  `nomic-embed-text`, already available locally, would be a natural fit for
-  a future embeddings-based re-ranking pass.
-- No dashboard was built beyond NocoDB's native grid/Kanban views.
-- Retry logic for transient Ollama/NocoDB failures relies on n8n's built-in
-  node-level retry settings (not enabled by default in the exported JSON) —
-  recommended to turn on "Retry On Fail" on both `Ollama - *` HTTP Request
-  nodes for production use.
-
----
-
-## 🎥 Demo video
-
-A 5–10 minute screen recording covering resume ingestion, AI extraction,
-candidate scoring, database creation, interview scheduling, and error
-handling is included with this submission (see submission notes / linked
-video).
-
----
-
-Built for the Anthrasync Round 3 Technical Assignment — Task 3.
+- Built by Vidhi Waghela
+- (mail-id: vidhiwaghela99@gmail.com)
