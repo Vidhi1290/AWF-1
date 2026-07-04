@@ -1,0 +1,51 @@
+version: "3.8"
+
+# One-command local stack for the AI Resume Screening workflow: n8n + NocoDB.
+# Ollama is assumed to be running natively on your Mac (as it already is),
+# reachable from inside these containers via host.docker.internal.
+#
+# Start:   docker compose up -d
+# Stop:    docker compose down
+# Logs:    docker compose logs -f n8n
+#
+# n8n UI:    http://localhost:5678
+# NocoDB UI: http://localhost:8080
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: resume-screening-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - NODE_FUNCTION_ALLOW_EXTERNAL=mammoth
+      - NODE_FUNCTION_ALLOW_BUILTIN=fs,crypto
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=llama3.2:3b
+      - JD_FILE_PATH=/data/job_description.md
+      - NOCODB_BASE_ID=${NOCODB_BASE_ID:-}
+      - NOCODB_TABLE_ID=${NOCODB_TABLE_ID:-}
+      - NOCODB_ERROR_LOG_TABLE_ID=${NOCODB_ERROR_LOG_TABLE_ID:-}
+      - MATCH_SCORE_SHORTLIST_THRESHOLD=80
+      - MATCH_SCORE_REVIEW_THRESHOLD=60
+      - RECRUITER_ALERT_EMAIL=${RECRUITER_ALERT_EMAIL:-vidhiwaghela99@gmail.com}
+      - GENERIC_TIMEZONE=Asia/Kolkata
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./sample-data:/data
+
+  nocodb:
+    image: nocodb/nocodb:latest
+    container_name: resume-screening-nocodb
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - nocodb_data:/usr/app/data
+
+volumes:
+  n8n_data:
+  nocodb_data:

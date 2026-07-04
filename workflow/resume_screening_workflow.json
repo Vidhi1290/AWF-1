@@ -1,0 +1,851 @@
+{
+  "name": "AI Resume Screening & Interview Scheduling",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "has:attachment (filename:pdf OR filename:docx)"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "09b198ae-581f-4757-b7a4-36a7f853c7fa",
+      "name": "Gmail Trigger - Recruitment Inbox",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -3840,
+        120
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "inkncpTWMLTMvlKW",
+          "name": "Gmail OAuth2 - Recruitment Inbox"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 1: capture email metadata and split into one item per SUPPORTED attachment.\n// Emails with no PDF/DOCX attachment are silently dropped here (requirement:\n// 'ignore emails without supported attachments') - no item is emitted for them,\n// so nothing downstream runs and no error is raised.\nconst outputItems = [];\n\n// Defensive string coercion: different Gmail/n8n node versions represent the\n// From/Subject/Date headers differently - sometimes a plain string, sometimes\n// a structured object (e.g. { value: [{ name, address }] }). Never assume\n// a plain string and call .match() directly on it (caused a real\n// \"fromRaw.match is not a function\" runtime error during testing).\nfunction toStr(v) {\n  if (v === null || v === undefined) return '';\n  if (typeof v === 'string') return v;\n  if (Array.isArray(v)) return v.map(toStr).filter(Boolean).join(', ');\n  if (typeof v === 'object') {\n    if (Array.isArray(v.value) && v.value.length) {\n      return v.value.map((entry) => (`${entry.name || ''} <${entry.address || entry.email || ''}>`).trim()).join(', ');\n    }\n    if (v.address || v.email) return (`${v.name || ''} <${v.address || v.email}>`).trim();\n    if (v.text) return String(v.text);\n  }\n  return String(v);\n}\n\nfor (const item of $input.all()) {\n  const binary = item.binary || {};\n  const binaryKeys = Object.keys(binary);\n\n  const fromRaw = toStr(item.json.from || item.json.From || (item.json.headers && item.json.headers.from) || '');\n  const emailMatch = fromRaw.match(/<([^>]+)>/);\n  const senderEmail = (emailMatch ? emailMatch[1] : fromRaw).trim().toLowerCase();\n  const senderName = fromRaw.replace(/<[^>]+>/, '').replace(/\"/g, '').trim();\n\n  const subjectRaw = toStr(item.json.subject || item.json.Subject || '(no subject)');\n  const dateRaw = toStr(item.json.date || item.json.Date || new Date().toISOString());\n\n  const validKeys = binaryKeys.filter((key) => {\n    const b = binary[key];\n    const mime = (b.mimeType || '').toLowerCase();\n    const fileName = (b.fileName || '').toLowerCase();\n    const isPdf = mime.includes('pdf') || fileName.endsWith('.pdf');\n    const isDocx = mime.includes('word') || mime.includes('officedocument') || fileName.endsWith('.docx');\n    return isPdf || isDocx;\n  });\n\n  for (const key of validKeys) {\n    const b = binary[key];\n    const mime = (b.mimeType || '').toLowerCase();\n    const fileName = (b.fileName || '').toLowerCase();\n    const fileType = (mime.includes('pdf') || fileName.endsWith('.pdf')) ? 'pdf' : 'docx';\n\n    outputItems.push({\n      json: {\n        sender_name: senderName || 'Unknown Sender',\n        sender_email: senderEmail,\n        email_subject: subjectRaw,\n        received_at: dateRaw,\n        file_name: b.fileName || 'resume',\n        mime_type: b.mimeType || '',\n        file_type: fileType,\n      },\n      binary: { attachment: b },\n    });\n  }\n}\n\nreturn outputItems;"
+      },
+      "id": "2a27de06-d980-4066-9244-fc98b3bbe813",
+      "name": "Extract Attachments & Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3600,
+        120
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.file_type }}",
+                    "rightValue": "pdf",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.file_type }}",
+                    "rightValue": "docx",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "027bc5fb-2da5-4c76-a87d-caadbf03e9cf",
+      "name": "Route By File Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -3360,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "attachment",
+        "options": {}
+      },
+      "id": "32c0901f-5606-4189-a886-92246a12005d",
+      "name": "Extract PDF Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -3120,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// DOCX text extraction using mammoth. Requires the n8n environment variable\n// NODE_FUNCTION_ALLOW_EXTERNAL=mammoth (see README - Setup Instructions).\nconst mammoth = require('mammoth');\nconst results = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  const buffer = await this.helpers.getBinaryDataBuffer(i, 'attachment');\n  let text = '';\n  try {\n    const { value } = await mammoth.extractRawText({ buffer });\n    text = value;\n  } catch (err) {\n    text = '';\n    item.json.extraction_error = err.message;\n  }\n  results.push({ json: { ...item.json, text }, binary: item.binary });\n}\n\nreturn results;"
+      },
+      "id": "a7e0c3ea-8ae9-473e-ac73-c0256efec7ac",
+      "name": "Extract DOCX Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3120,
+        220
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b56a93f2-6e01-4bb2-9b2a-43bae3ccfca3",
+      "name": "Merge Resume Text",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -2880,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guard against empty/failed extraction (error handling requirement).\nconst items = $input.all();\nconst out = [];\nfor (const item of items) {\n  const text = (item.json.text || '').trim();\n  if (!text) {\n    item.json.extraction_error = item.json.extraction_error || 'No text could be extracted from attachment';\n    item.json.pipeline_status = 'failed_extraction';\n  } else {\n    item.json.pipeline_status = 'extracted';\n  }\n  item.json.resumeText = text;\n  out.push(item);\n}\nreturn out;"
+      },
+      "id": "ee5d4fe3-ab58-4909-ac65-965ba7fb6057",
+      "name": "Guard: Extraction Succeeded",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2640,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 3 (part 1): build the resume-parsing prompt for the local Ollama model.\n// Mirrors prompts/resume_parsing_prompt.md - keep both in sync if you edit one.\nconst SCHEMA = `{\n  \"candidate_name\": \"\",\n  \"email\": \"\",\n  \"phone\": \"\",\n  \"location\": \"\",\n  \"total_experience_years\": 0,\n  \"current_role\": \"\",\n  \"current_company\": \"\",\n  \"education\": [],\n  \"technical_skills\": [],\n  \"soft_skills\": [],\n  \"certifications\": [],\n  \"languages\": [],\n  \"projects\": [],\n  \"linkedin_url\": \"\"\n}`;\n\nconst INSTRUCTIONS = `You are a strict resume parsing engine used in a production HR pipeline.\nYour ONLY job is to read the resume text below and return a single valid JSON\nobject with the exact schema described. Do not include any commentary,\nmarkdown formatting, or code fences - output raw JSON only.\n\nRules:\n- If a field is not present in the resume, return an empty string for string\n  fields or an empty array for list fields. Never invent data.\n- total_experience_years must be a number. Estimate from job date ranges if\n  not stated explicitly; return 0 if impossible to determine.\n- Deduplicate any list before returning it.\n- Every list field (education, technical_skills, soft_skills, certifications,\n  languages, projects) MUST be an array of plain strings, never an array of\n  objects. E.g. education: [\"B.Tech in Computer Science, VIT Vellore (2016-2020)\"].\n- Normalize phone numbers to digits and '+' only.\n- Normalize email to lowercase.\n- current_role and current_company must reflect the most recent listed position only.\n\nReturn JSON matching exactly this schema:\n${SCHEMA}`;\n\nreturn $input.all().map((item) => {\n  const prompt = `${INSTRUCTIONS}\\n\\nResume text:\\n\"\"\"\\n${item.json.resumeText}\\n\"\"\"`;\n  return { json: { ...item.json, resume_parsing_prompt: prompt } };\n});"
+      },
+      "id": "2ff2de21-7ced-46a2-ac8b-efadf784f5a3",
+      "name": "Build Resume Parsing Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2400,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_BASE_URL || 'http://localhost:11434' }}/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OLLAMA_MODEL || 'llama3.2:3b', prompt: $json.resume_parsing_prompt, format: 'json', stream: false, options: { temperature: 0 } }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "12432c2e-5561-4365-8336-15e7b39b0feb",
+      "name": "Ollama - Parse Resume",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2160,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 5: safely parse + validate/clean the LLM's resume JSON output.\n// (Same logic as scripts/validate.js - kept inline since n8n Code nodes\n// cannot import local project files.)\n\nfunction safeExtractJSON(rawText) {\n  if (rawText === null || rawText === undefined) return {};\n  let text = String(rawText).trim();\n  text = text.replace(/```json/gi, '```');\n  const fenceMatch = text.match(/```([\\s\\S]*?)```/);\n  if (fenceMatch) text = fenceMatch[1].trim();\n  const firstBrace = text.indexOf('{');\n  const lastBrace = text.lastIndexOf('}');\n  if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) return {};\n  const candidate = text.slice(firstBrace, lastBrace + 1);\n  try {\n    return JSON.parse(candidate);\n  } catch (err) {\n    try {\n      return JSON.parse(candidate.replace(/,(\\s*[}\\]])/g, '$1'));\n    } catch (err2) {\n      return { _parseError: true, _rawText: rawText };\n    }\n  }\n}\n\nfunction stringifyListItem(item) {\n  if (item === null || item === undefined) return '';\n  if (typeof item === 'string') return item.trim();\n  if (typeof item === 'number' || typeof item === 'boolean') return String(item);\n  if (Array.isArray(item)) return item.map(stringifyListItem).filter(Boolean).join(', ');\n  if (typeof item === 'object') return Object.values(item).map(stringifyListItem).filter(Boolean).join(' - ');\n  return String(item).trim();\n}\n\nfunction dedupeList(list) {\n  if (!Array.isArray(list)) {\n    if (typeof list === 'string' && list.trim()) list = list.split(',');\n    else return [];\n  }\n  const seen = new Set();\n  const out = [];\n  for (const item of list) {\n    if (item === null || item === undefined) continue;\n    const trimmed = stringifyListItem(item);\n    if (!trimmed) continue;\n    const key = trimmed.toLowerCase();\n    if (!seen.has(key)) { seen.add(key); out.push(trimmed); }\n  }\n  return out;\n}\n\nconst EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/;\nfunction isValidEmail(email) { return typeof email === 'string' && EMAIL_REGEX.test(email.trim()); }\n\nfunction normalizePhone(phone) {\n  if (!phone) return '';\n  const cleaned = String(phone).replace(/[^\\d+]/g, '');\n  const digitCount = (cleaned.match(/\\d/g) || []).length;\n  if (digitCount < 7) return '';\n  return cleaned;\n}\n\nfunction standardizeExperience(value) {\n  if (value === null || value === undefined || value === '') return 0;\n  const num = parseFloat(String(value).replace(/[^\\d.]/g, ''));\n  if (Number.isNaN(num)) return 0;\n  return Math.round(num * 10) / 10;\n}\n\nreturn $input.all().map((item) => {\n  const raw = safeExtractJSON(item.json.response);\n  const r = raw && typeof raw === 'object' ? raw : {};\n  const email = typeof r.email === 'string' ? r.email.trim().toLowerCase() : '';\n  const phone = normalizePhone(r.phone);\n\n  const cleaned = {\n    candidate_name: (r.candidate_name || '').toString().trim() || 'Unknown Candidate',\n    email: isValidEmail(email) ? email : '',\n    email_is_valid: isValidEmail(email),\n    phone,\n    phone_is_valid: phone !== '',\n    location: (r.location || '').toString().trim(),\n    total_experience_years: standardizeExperience(r.total_experience_years),\n    current_role: (r.current_role || '').toString().trim(),\n    current_company: (r.current_company || '').toString().trim(),\n    education: dedupeList(r.education),\n    technical_skills: dedupeList(r.technical_skills),\n    soft_skills: dedupeList(r.soft_skills),\n    certifications: dedupeList(r.certifications),\n    languages: dedupeList(r.languages),\n    projects: dedupeList(r.projects),\n    linkedin_url: (r.linkedin_url || '').toString().trim(),\n    resume_parse_had_error: !!raw._parseError,\n  };\n\n  return { json: { ...item.json, ...cleaned }, binary: item.binary };\n});"
+      },
+      "id": "3030537c-bddf-4b55-b0b0-b52dd71c35be",
+      "name": "Parse & Validate Resume JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1920,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loads the active job description from disk. Point JD_FILE_PATH at the\n// mounted sample-data/job_description.md (or a custom JD) - see README.\nconst fs = require('fs');\nconst path = $env.JD_FILE_PATH || '/data/job_description.md';\nlet jdText = '';\ntry {\n  jdText = fs.readFileSync(path, 'utf-8');\n} catch (err) {\n  jdText = '';\n}\nreturn $input.all().map((item) => ({\n  json: { ...item.json, job_description_text: jdText, jd_load_error: jdText === '' },\n  binary: item.binary,\n}));"
+      },
+      "id": "571eb1b8-ebce-44ef-a457-de14d0a7643d",
+      "name": "Load Job Description",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1680,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 4: build the JD-matching prompt. Mirrors prompts/jd_matching_prompt.md.\nconst SCHEMA = `{\n  \"match_score\": 0,\n  \"matching_skills\": [],\n  \"missing_skills\": [],\n  \"relevant_experience\": \"\",\n  \"potential_concerns\": [],\n  \"ai_summary\": \"\",\n  \"hiring_recommendation\": \"\"\n}`;\n\nreturn $input.all().map((item) => {\n  const candidateJson = JSON.stringify({\n    candidate_name: item.json.candidate_name,\n    total_experience_years: item.json.total_experience_years,\n    current_role: item.json.current_role,\n    current_company: item.json.current_company,\n    education: item.json.education,\n    technical_skills: item.json.technical_skills,\n    soft_skills: item.json.soft_skills,\n    certifications: item.json.certifications,\n    projects: item.json.projects,\n  }, null, 2);\n\n  const prompt = `You are a senior technical recruiter AI. Compare the CANDIDATE_PROFILE JSON\nagainst the JOB_DESCRIPTION text and produce a rigorous, evidence-based\nevaluation. Only count a skill as matching if it is explicitly present in the\ncandidate profile. Do not invent experience the candidate does not have.\n\nOutput raw JSON only, matching exactly this schema:\n${SCHEMA}\n\nScoring rubric for match_score (0-100 integer): 40 pts technical skill overlap,\n25 pts relevant years of experience, 15 pts education/certification alignment,\n10 pts role/title seniority alignment, 10 pts soft skills/domain relevance.\n\nhiring_recommendation must be exactly one of: \"Shortlist\", \"Manual Review\", \"Reject\".\npotential_concerns should flag gaps, over/under-qualification, job-hopping, etc. Return [] if none.\n\nCANDIDATE_PROFILE:\n${candidateJson}\n\nJOB_DESCRIPTION:\n\"\"\"\n${item.json.job_description_text}\n\"\"\"`;\n\n  return { json: { ...item.json, jd_match_prompt: prompt } };\n});"
+      },
+      "id": "30ae9878-cdc6-433e-af87-fce2179e08a0",
+      "name": "Build JD Match Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1440,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_BASE_URL || 'http://localhost:11434' }}/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OLLAMA_MODEL || 'llama3.2:3b', prompt: $json.jd_match_prompt, format: 'json', stream: false, options: { temperature: 0 } }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "a5493f91-f9af-420f-be0f-14de0c3bccc7",
+      "name": "Ollama - JD Match",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1200,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 5 (continued): validate/clean the JD-matching output.\nfunction safeExtractJSON(rawText) {\n  if (rawText === null || rawText === undefined) return {};\n  let text = String(rawText).trim();\n  text = text.replace(/```json/gi, '```');\n  const fenceMatch = text.match(/```([\\s\\S]*?)```/);\n  if (fenceMatch) text = fenceMatch[1].trim();\n  const firstBrace = text.indexOf('{');\n  const lastBrace = text.lastIndexOf('}');\n  if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) return {};\n  const candidate = text.slice(firstBrace, lastBrace + 1);\n  try { return JSON.parse(candidate); }\n  catch (err) {\n    try { return JSON.parse(candidate.replace(/,(\\s*[}\\]])/g, '$1')); }\n    catch (err2) { return { _parseError: true }; }\n  }\n}\n\nfunction stringifyListItem(item) {\n  if (item === null || item === undefined) return '';\n  if (typeof item === 'string') return item.trim();\n  if (typeof item === 'number' || typeof item === 'boolean') return String(item);\n  if (Array.isArray(item)) return item.map(stringifyListItem).filter(Boolean).join(', ');\n  if (typeof item === 'object') return Object.values(item).map(stringifyListItem).filter(Boolean).join(' - ');\n  return String(item).trim();\n}\n\nfunction dedupeList(list) {\n  if (!Array.isArray(list)) {\n    if (typeof list === 'string' && list.trim()) list = list.split(',');\n    else return [];\n  }\n  const seen = new Set();\n  const out = [];\n  for (const item of list) {\n    if (item === null || item === undefined) continue;\n    const trimmed = stringifyListItem(item);\n    if (!trimmed) continue;\n    const key = trimmed.toLowerCase();\n    if (!seen.has(key)) { seen.add(key); out.push(trimmed); }\n  }\n  return out;\n}\n\nreturn $input.all().map((item) => {\n  const raw = safeExtractJSON(item.json.response);\n  const r = raw && typeof raw === 'object' ? raw : {};\n  let score = Number(r.match_score);\n  if (Number.isNaN(score)) score = 0;\n  score = Math.max(0, Math.min(100, Math.round(score)));\n  const allowed = ['Shortlist', 'Manual Review', 'Reject'];\n  let aiRec = (r.hiring_recommendation || '').toString().trim();\n  if (!allowed.includes(aiRec)) aiRec = 'Manual Review';\n\n  const cleaned = {\n    match_score: score,\n    matching_skills: dedupeList(r.matching_skills),\n    missing_skills: dedupeList(r.missing_skills),\n    relevant_experience: (r.relevant_experience || '').toString().trim(),\n    potential_concerns: dedupeList(r.potential_concerns),\n    ai_summary: (r.ai_summary || '').toString().trim(),\n    ai_recommendation_raw: aiRec,\n    match_parse_had_error: !!raw._parseError,\n  };\n\n  return { json: { ...item.json, ...cleaned }, binary: item.binary };\n});"
+      },
+      "id": "1fcf614f-f116-4ce8-af5d-cf914dbc4bcb",
+      "name": "Parse & Validate Match JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 7: deterministic shortlisting logic - independent of the LLM's own\n// opinion, so the official decision is auditable and doesn't drift with\n// model behavior. Thresholds are configurable via env vars (see README).\nconst crypto = require('crypto');\n\nconst SHORTLIST_THRESHOLD = Number($env.MATCH_SCORE_SHORTLIST_THRESHOLD || 80);\nconst REVIEW_THRESHOLD = Number($env.MATCH_SCORE_REVIEW_THRESHOLD || 60);\n\nfunction computeRecommendation(score) {\n  if (score >= SHORTLIST_THRESHOLD) return 'Shortlist';\n  if (score >= REVIEW_THRESHOLD) return 'Manual Review';\n  return 'Reject';\n}\n\nfunction statusFor(recommendation) {\n  if (recommendation === 'Shortlist') return 'Shortlisted';\n  if (recommendation === 'Manual Review') return 'Manual Review';\n  return 'Rejected';\n}\n\nreturn $input.all().map((item) => {\n  const recommendation = computeRecommendation(item.json.match_score);\n  const applicationStatus = statusFor(recommendation);\n  const resumeHash = crypto.createHash('sha256').update((item.json.resumeText || '').replace(/\\s+/g, ' ').trim().toLowerCase()).digest('hex');\n\n  return {\n  json: {\n    ...$('Extract Attachments & Metadata').first().json,\n    ...$('Parse & Validate Resume JSON').first().json,\n    ...item.json,\n    recommendation,\n    application_status: applicationStatus,\n    resume_hash: resumeHash,\n    is_shortlisted: recommendation === 'Shortlist',\n  },\n  binary: item.binary,\n  };\n});"
+      },
+      "id": "e5f29bbe-16fb-4d26-88f9-b7fdcd151e32",
+      "name": "Shortlisting Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "nocoDbApiToken",
+        "operation": "getAll",
+        "projectId": "=p8rmhu8kiywo3kq",
+        "table": "mzmy3j79c0s8ivl",
+        "limit": 1,
+        "options": {
+          "where": "={{ '(ResumeHash,eq,' + $json.resume_hash + ')' }}"
+        }
+      },
+      "id": "894353b1-454f-4485-afbb-491404188aea",
+      "name": "Check Duplicate (NocoDB lookup)",
+      "type": "n8n-nodes-base.nocoDb",
+      "typeVersion": 3,
+      "position": [
+        -2560,
+        480
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "nocoDbApiToken": {
+          "id": "SLlG5HAzAZBLXWWd",
+          "name": "NocoDB API Token "
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "08326ee0-4a0c-4638-92d8-be54fe5a78f9",
+      "name": "Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2160,
+        480
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "id": "11bae520-0ef1-4873-96a3-9fd210e4a01f",
+      "name": "Log Duplicate Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1840,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "nocoDbApiToken",
+        "operation": "create",
+        "projectId": "p8rmhu8kiywo3kq",
+        "table": "=mzmy3j79c0s8ivl",
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "3b3e1fe8-0e2d-4990-a9c0-9552da71adc9",
+      "name": "Create Candidate Record",
+      "type": "n8n-nodes-base.nocoDb",
+      "typeVersion": 3,
+      "position": [
+        -1580,
+        600
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "nocoDbApiToken": {
+          "id": "SLlG5HAzAZBLXWWd",
+          "name": "NocoDB API Token "
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.is_shortlisted }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "40561a43-3330-495b-8d69-711126b41d03",
+      "name": "Is Shortlisted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1320,
+        600
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Shortlisting Logic').item.json.email }}",
+        "subject": "={{ 'Interview Invitation - ' + $('Shortlisting Logic').item.json.current_role + ' role at Anthrasync' }}",
+        "message": "{{ 'Hi ' + $('Shortlisting Logic').item.json.candidate_name + ',<br><br>Thank you for applying. Based on our initial screening, we would like to invite you for an interview.<br><br>Our team will follow up shortly with...' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "e1322264-7501-4b39-a317-0b371d12c16b",
+      "name": "Send Interview Invitation",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -1040,
+        580
+      ],
+      "webhookId": "0b92a35a-95a3-4cfe-b9b4-48300a4b952d",
+      "alwaysOutputData": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "inkncpTWMLTMvlKW",
+          "name": "Gmail OAuth2 - Recruitment Inbox"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "value": "primary",
+          "mode": "list"
+        },
+        "start": "={{ $now.plus({ days: 2 }).set({ hour: 10, minute: 0, second: 0 }).toISO() }}",
+        "end": "={{ $now.plus({ days: 2 }).set({ hour: 10, minute: 30, second: 0 }).toISO() }}",
+        "additionalFields": {
+          "attendees": [
+            "={{ $('Shortlisting Logic').item.json.email }}"
+          ],
+          "description": "={{ 'AI Match Score: ' + $('Shortlisting Logic').item.json.match_score + '/100\\n\\nAI Summary: ' + $('Shortlisting Logic').item.json.ai_summary }}",
+          "summary": "={{ 'Interview: ' + $('Shortlisting Logic').item.json.candidate_name + ' - ' + $('Shortlisting Logic').item.json.current_role }}"
+        }
+      },
+      "id": "9907a092-a27a-4013-ab9d-97568ed17867",
+      "name": "Create Interview Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.2,
+      "position": [
+        -780,
+        580
+      ],
+      "executeOnce": false,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "1kyUoiIAtk265Ba8",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "nocoDbApiToken",
+        "operation": "update",
+        "projectId": "=p8rmhu8kiywo3kq",
+        "table": "mzmy3j79c0s8ivl",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldName": "ApplicationStatus",
+              "fieldValue": "Interview Scheduled"
+            },
+            {
+              "fieldName": "Id",
+              "fieldValue": "={{ $('Find Candidate Record').item.json.Id }}"
+            },
+            {
+              "fieldName": "InterviewDateTime",
+              "fieldValue": "={{ $json.start.dateTime }}"
+            }
+          ]
+        }
+      },
+      "id": "e15d9c4a-063a-483a-be46-b9014f265f5a",
+      "name": "Update Status - Interview Scheduled",
+      "type": "n8n-nodes-base.nocoDb",
+      "typeVersion": 3,
+      "position": [
+        -360,
+        580
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "nocoDbApiToken": {
+          "id": "SLlG5HAzAZBLXWWd",
+          "name": "NocoDB API Token "
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const dupItems = $input.all();\nconst isDup = dupItems.length > 0 && dupItems.some(d => d.json && Object.keys(d.json).length > 0);\n\nconst original = $('Shortlisting Logic').all();\nreturn original.map((item) => ({\n  json: { ...item.json, is_duplicate: isDup },\n  binary: item.binary,\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2360,
+        480
+      ],
+      "id": "98f4a7fd-2dc2-4f52-9673-23140f89ede9",
+      "name": "Determine Duplicate Status.",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $json;\nconst j = (arr) => Array.isArray(arr) ? arr.join(', ') : (arr || '');\n\nreturn [{\n  binary: $input.first().binary,\n  json: {\n    CandidateName: c.candidate_name || '',\n    Email: c.email || '',\n    Phone: c.phone || '',\n    Location: c.location || '',\n    CurrentRole: c.current_role || '',\n    CurrentCompany: c.current_company || '',\n    ExperienceYears: c.total_experience_years || 0,\n    Education: j(c.education),\n    TechnicalSkills: j(c.technical_skills),\n    SoftSkills: j(c.soft_skills),\n    Certifications: j(c.certifications),\n    Languages: j(c.languages),\n    Projects: j(c.projects),\n    LinkedInUrl: c.linkedin_url || '',\n    MatchScore: c.match_score || 0,\n    MatchingSkills: j(c.matching_skills),\n    MissingSkills: j(c.missing_skills),\n    RelevantExperience: c.relevant_experience || '',\n    PotentialConcerns: j(c.potential_concerns),\n    AISummary: c.ai_summary || '',\n    AIRecommendationRaw: c.ai_recommendation_raw || c.hiring_recommendation || '',\n    Recommendation: c.recommendation || '',\n    ApplicationStatus: c.application_status || '',\n    RecruiterNotes: '',\n    EmailSubject: c.email_subject || '',\n    SenderEmail: c.sender_email || '',\n    ReceivedAt: c.received_at || '',\n    ResumeAttachment: '',\n    InterviewDateTime: '',\n    CalendarEventId: '',\n    ResumeHash: c.resume_hash || '',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1840,
+        600
+      ],
+      "id": "78fd4cea-3536-44fc-862c-0d126c4cc877",
+      "name": "Map to NocoDB Columns",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "authentication": "nocoDbApiToken",
+        "operation": "getAll",
+        "projectId": "p8rmhu8kiywo3kq",
+        "table": "mzmy3j79c0s8ivl",
+        "options": {
+          "where": "={{ '(Email,eq,' + $('Shortlisting Logic').item.json.email + ')' }}"
+        }
+      },
+      "type": "n8n-nodes-base.nocoDb",
+      "typeVersion": 3,
+      "position": [
+        -560,
+        580
+      ],
+      "id": "ee5b49cc-9aca-491f-9de5-a5cee454a66d",
+      "name": "Find Candidate Record",
+      "alwaysOutputData": true,
+      "credentials": {
+        "nocoDbApiToken": {
+          "id": "SLlG5HAzAZBLXWWd",
+          "name": "NocoDB API Token "
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger - Recruitment Inbox": {
+      "main": [
+        [
+          {
+            "node": "Extract Attachments & Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Attachments & Metadata": {
+      "main": [
+        [
+          {
+            "node": "Route By File Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By File Type": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract DOCX Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Merge Resume Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract DOCX Text": {
+      "main": [
+        [
+          {
+            "node": "Merge Resume Text",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Resume Text": {
+      "main": [
+        [
+          {
+            "node": "Guard: Extraction Succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard: Extraction Succeeded": {
+      "main": [
+        [
+          {
+            "node": "Build Resume Parsing Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Resume Parsing Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Parse Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Parse Resume": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Resume JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Resume JSON": {
+      "main": [
+        [
+          {
+            "node": "Load Job Description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Job Description": {
+      "main": [
+        [
+          {
+            "node": "Build JD Match Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build JD Match Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ollama - JD Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - JD Match": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Match JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Match JSON": {
+      "main": [
+        [
+          {
+            "node": "Shortlisting Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shortlisting Logic": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate (NocoDB lookup)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate (NocoDB lookup)": {
+      "main": [
+        [
+          {
+            "node": "Determine Duplicate Status.",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "Log Duplicate Skip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Map to NocoDB Columns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Candidate Record": {
+      "main": [
+        [
+          {
+            "node": "Is Shortlisted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Shortlisted?": {
+      "main": [
+        [
+          {
+            "node": "Send Interview Invitation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Interview Invitation": {
+      "main": [
+        [
+          {
+            "node": "Create Interview Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Interview Event": {
+      "main": [
+        [
+          {
+            "node": "Find Candidate Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Duplicate Status.": {
+      "main": [
+        [
+          {
+            "node": "Is Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map to NocoDB Columns": {
+      "main": [
+        [
+          {
+            "node": "Create Candidate Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Candidate Record": {
+      "main": [
+        [
+          {
+            "node": "Update Status - Interview Scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c05e3057-9cbb-4fd4-a6df-0bcdcde84ec0",
+  "meta": {
+    "instanceId": "09881211198b50e351487eb02a6302f572c5be23133cbc16232457bca52a91b8"
+  },
+  "id": "4q0tSUgD9QjkoQrz",
+  "tags": []
+}

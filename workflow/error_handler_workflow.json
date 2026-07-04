@@ -1,0 +1,83 @@
+{
+  "name": "Resume Screening - Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [-600, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize the error payload for logging (bonus: comprehensive logging & monitoring).\nconst execution = $input.first().json;\nconst workflow = execution.workflow || {};\nconst errorNode = execution.execution && execution.execution.error ? execution.execution.error.node : {};\n\nreturn [{\n  json: {\n    workflow_name: workflow.name || 'unknown',\n    node_name: (errorNode && errorNode.name) || 'unknown',\n    error_message: (execution.execution && execution.execution.error && execution.execution.error.message) || 'unknown error',\n    occurred_at: new Date().toISOString(),\n    raw_payload: JSON.stringify(execution).slice(0, 5000),\n  },\n}];"
+      },
+      "id": "normalize-error",
+      "name": "Normalize Error Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-360, 0]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "workspaceId": "={{ $env.NOCODB_BASE_ID }}",
+        "tableId": "={{ $env.NOCODB_ERROR_LOG_TABLE_ID }}",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldName": "workflow_name", "fieldValue": "={{ $json.workflow_name }}" },
+            { "fieldName": "node_name", "fieldValue": "={{ $json.node_name }}" },
+            { "fieldName": "error_message", "fieldValue": "={{ $json.error_message }}" },
+            { "fieldName": "occurred_at", "fieldValue": "={{ $json.occurred_at }}" },
+            { "fieldName": "raw_payload", "fieldValue": "={{ $json.raw_payload }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-error-nocodb",
+      "name": "Log Error to NocoDB",
+      "type": "n8n-nodes-base.nocoDb",
+      "typeVersion": 3,
+      "position": [-120, 0],
+      "credentials": {
+        "nocoDbApiToken": { "id": "placeholder", "name": "NocoDB API Token" }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.RECRUITER_ALERT_EMAIL }}",
+        "subject": "={{ 'Resume Screening Workflow Error - ' + $json.node_name }}",
+        "message": "={{ 'The resume screening workflow failed.<br><br>Node: ' + $json.node_name + '<br>Error: ' + $json.error_message + '<br>Time: ' + $json.occurred_at }}",
+        "options": {}
+      },
+      "id": "alert-recruiter",
+      "name": "Alert Recruiter (Email)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [120, 0],
+      "credentials": {
+        "gmailOAuth2": { "id": "placeholder", "name": "Gmail OAuth2 - Recruitment Inbox" }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [[{ "node": "Normalize Error Payload", "type": "main", "index": 0 }]]
+    },
+    "Normalize Error Payload": {
+      "main": [[{ "node": "Log Error to NocoDB", "type": "main", "index": 0 }]]
+    },
+    "Log Error to NocoDB": {
+      "main": [[{ "node": "Alert Recruiter (Email)", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "resume-screening-automation-error-handler"
+  }
+}
