@@ -159,24 +159,5 @@ Rather than waiting for the Gmail poll, you can test the pipeline manually:
    just show the failed execution + red error banner in n8n before
    restarting it).
 
-## Phase 7 — Record the demo (5–10 min)
-
-Suggested structure, matching the assignment's requested coverage:
-
-1. (30s) Quick intro: what the workflow does, tech stack (n8n, local Ollama,
-   NocoDB, Gmail, Google Calendar — no paid APIs).
-2. (1–2 min) Resume ingestion: send/show the test email with attachment,
-   show the n8n execution starting.
-3. (1–2 min) AI extraction: click through "Ollama - Parse Resume" and "Parse
-   & Validate Resume JSON" node outputs, show the structured JSON.
-4. (1–2 min) Candidate scoring: show "Ollama - JD Match" and "Shortlisting
-   Logic" outputs, explain the threshold rule.
-5. (1 min) Database: show the new row in NocoDB, edit a field live to
-   demonstrate Step 9 (manual recruiter review/override).
-6. (1–2 min) Interview scheduling: show the sent email + the created Google
-   Calendar event, and the status change to "Interview Scheduled".
-7. (1 min) Error handling: show the unsupported-attachment email being
-   ignored, and/or the error workflow log entry from Phase 6 step 7.
-
 Screen recording tool: QuickTime Player (Mac, built in) → File → New Screen
 Recording, or any tool you already have.
